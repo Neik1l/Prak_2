@@ -1,65 +1,48 @@
 import csv
-import os
-from typing import Dict, Any
 
 class Config:
     def __init__(self):
         self.package_name = ""
-        self.repository_url = ""
         self.test_mode = False
         self.test_repo_path = ""
+        self.max_depth = 3
+        self.repository_url = ""
     
-    def load_from_csv(self, file_path: str) -> None:
+    def load_from_csv(self, filename: str):
         """Загружает конфигурацию из CSV файла"""
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Конфигурационный файл не найден: {file_path}")
-        
         try:
-            with open(file_path, 'r', encoding='utf-8') as file:
+            with open(filename, 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
-                rows = list(reader)
-                
-                if not rows:
-                    raise ValueError("CSV файл пуст")
-                
-                # Берем первую строку для конфигурации
-                config_row = rows[0]
-                
-                # Обрабатываем обязательные параметры
-                self.package_name = config_row.get('package_name', '').strip()
-                if not self.package_name:
-                    raise ValueError("Имя пакета не может быть пустым")
-                
-                self.repository_url = config_row.get('repository_url', '').strip()
-                self.test_repo_path = config_row.get('test_repo_path', '').strip()
-                
-                # Обрабатываем режим работы
-                test_mode_str = config_row.get('test_mode', 'false').strip().lower()
-                self.test_mode = test_mode_str in ('true', '1', 'yes')
-                
-                # Валидация параметров
-                if self.test_mode and not self.test_repo_path:
-                    raise ValueError("В тестовом режиме должен быть указан путь к тестовому репозиторию")
-                elif not self.test_mode and not self.repository_url:
-                    raise ValueError("В рабочем режиме должен быть указан URL репозитория")
+                for row in reader:
+                    self.package_name = row.get('package_name', '').strip()
                     
-        except csv.Error as e:
-            raise ValueError(f"Ошибка чтения CSV файла: {e}")
+                    # Обрабатываем test_mode
+                    test_mode_str = row.get('test_mode', '').strip().lower()
+                    self.test_mode = test_mode_str in ['true', '1', 'yes', 'да']
+                    
+                    self.test_repo_path = row.get('test_repo_path', '').strip()
+                    self.repository_url = row.get('repository_url', '').strip()
+                    
+                    # Обрабатываем max_depth
+                    max_depth_str = row.get('max_depth', '').strip()
+                    if max_depth_str:
+                        self.max_depth = int(max_depth_str)
+                    else:
+                        self.max_depth = 3
+                    
+            print("✅ Конфигурация загружена из config.csv")
+            
         except Exception as e:
-            raise ValueError(f"Ошибка обработки конфигурации: {e}")
+            print(f"❌ Ошибка загрузки конфигурации: {e}")
+            raise
     
-    def get_all_parameters(self) -> Dict[str, Any]:
-        """Возвращает все параметры в формате ключ-значение"""
-        return {
-            "package_name": self.package_name,
-            "repository_url": self.repository_url,
-            "test_mode": self.test_mode,
-            "test_repo_path": self.test_repo_path
-        }
-    
-    def display_parameters(self) -> None:
-        """Выводит все параметры в формате ключ-значение"""
-        params = self.get_all_parameters()
-        print("Настроенные параметры:")
-        for key, value in params.items():
-            print(f"  {key}: {value}")
+    def display_parameters(self):
+        """Выводит параметры конфигурации"""
+        print("\n⚙️ КОНФИГУРАЦИЯ СИСТЕМЫ")
+        print("-" * 30)
+        print(f"📦 Основной пакет: {self.package_name}")
+        print(f"🔧 Режим тестирования: {'Да' if self.test_mode else 'Нет'}")
+        print(f"📊 Макс. глубина анализа: {self.max_depth}")
+        print(f"🌐 URL репозитория: {self.repository_url}")
+        if self.test_repo_path:
+            print(f"📁 Тестовый путь: {self.test_repo_path}")

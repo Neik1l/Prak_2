@@ -1,2 +1,2 @@
-package_name,repository_url,test_mode,test_repo_path
-A,,true,test_repo.txt
+package_name,test_mode,test_repo_path,repository_url,max_depth
+log,true,,https://github.com/rust-lang/log,3

@@ -1,119 +1,150 @@
-import os
-import tempfile
-import urllib.request
-import urllib.error
-import re
-from typing import List, Dict, Any
+import requests
 from config import Config
 
 class DependencyParser:
-    def __init__(self, config):
+    def __init__(self, config: Config):
         self.config = config
-        self.dependencies = []
+        self.dependency_cache = {}
     
-    def get_dependencies(self) -> List[str]:
-        """Получает прямые зависимости пакета"""
+    def get_dependencies(self, package_name: str):
+        """Получает зависимости для пакета"""
+        if package_name in self.dependency_cache:
+            return self.dependency_cache[package_name]
+            
         if self.config.test_mode:
-            return self._get_dependencies_from_test_repo()
+            deps = self._get_test_dependencies(package_name)
         else:
-            return self._get_dependencies_from_github()
+            deps = self._get_real_dependencies(package_name)
+            
+        self.dependency_cache[package_name] = deps
+        return deps
     
-    def _get_dependencies_from_github(self) -> List[str]:
-        """Получает зависимости из GitHub репозитория"""
+    def _get_test_dependencies(self, package_name: str):
+        """Тестовые данные для демонстрации"""
+        test_data = {
+            'A': ['B', 'C'],
+            'B': ['D'], 
+            'C': ['E', 'F'],
+            'D': [],
+            'E': ['C'],  # Циклическая зависимость
+            'F': ['G'],
+            'G': []
+        }
+        return test_data.get(package_name, [])
+    
+    def _get_real_dependencies(self, package_name: str):
+        """Получает реальные зависимости из crates.io"""
         try:
-            # Формируем URL к raw Cargo.toml файлу
-            cargo_toml_url = self._get_cargo_toml_url()
-            print(f"Загрузка Cargo.toml из: {cargo_toml_url}")
+            print(f"🔍 Получение зависимостей для {package_name}...")
+            url = f"https://crates.io/api/v1/crates/{package_name}"
+            response = requests.get(url, timeout=10)
             
-            # Скачиваем Cargo.toml
-            cargo_toml_content = self._download_file(cargo_toml_url)
-            
-            # Парсим зависимости
-            return self._parse_dependencies_simple(cargo_toml_content)
-            
-        except Exception as e:
-            raise ValueError(f"Ошибка получения зависимостей из GitHub: {e}")
-    
-    def _get_cargo_toml_url(self) -> str:
-        """Формирует URL для скачивания Cargo.toml"""
-        repo_url = self.config.repository_url.rstrip('/')
-        
-        # Преобразуем GitHub URL в raw URL
-        if 'github.com' in repo_url:
-            parts = repo_url.replace('https://github.com/', '').split('/')
-            if len(parts) >= 2:
-                user, repo = parts[0], parts[1]
-                branches = ['main', 'master']
-                for branch in branches:
-                    test_url = f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/Cargo.toml"
-                    if self._url_exists(test_url):
-                        return test_url
-                return f"https://raw.githubusercontent.com/{user}/{repo}/main/Cargo.toml"
-        
-        raise ValueError(f"Неподдерживаемый URL репозитория: {repo_url}")
-    
-    def _url_exists(self, url: str) -> bool:
-        """Проверяет существует ли URL"""
-        try:
-            with urllib.request.urlopen(url) as response:
-                return response.getcode() == 200
-        except:
-            return False
-    
-    def _download_file(self, url: str) -> str:
-        """Скачивает файл по URL и возвращает его содержимое"""
-        try:
-            with urllib.request.urlopen(url) as response:
-                content = response.read().decode('utf-8')
-                return content
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                raise ValueError(f"Файл Cargo.toml не найден по URL: {url}")
-            else:
-                raise ValueError(f"Ошибка HTTP {e.code} при загрузке файла")
-        except urllib.error.URLError as e:
-            raise ValueError(f"Ошибка сети: {e.reason}")
-    
-    def _parse_dependencies_simple(self, content: str) -> List[str]:
-        """Упрощенный парсер для извлечения зависимостей из Cargo.toml"""
-        dependencies = []
-        in_dependencies_section = False
-        
-        for line in content.split('\n'):
-            line = line.strip()
-            
-            # Начало секции зависимостей
-            if line == '[dependencies]':
-                in_dependencies_section = True
-                continue
-            # Конец секции (новая секция)
-            elif line.startswith('[') and in_dependencies_section:
-                break
-            
-            # В секции зависимостей - извлекаем имена
-            if in_dependencies_section and '=' in line and not line.startswith('#'):
-                dep_name = line.split('=')[0].strip()
-                if dep_name and not dep_name.startswith('['):
-                    dependencies.append(dep_name)
-        
-        return dependencies
-    
-    def _get_dependencies_from_test_repo(self) -> List[str]:
-        """Получает зависимости из тестового репозитория"""
-        # Для этапа 3 будет реализовано в dependency_graph
-        return []
-    
-    def display_dependencies(self) -> None:
-        """Выводит прямые зависимости на экран"""
-        try:
-            dependencies = self.get_dependencies()
-            print(f"\nПрямые зависимости пакета '{self.config.package_name}':")
-            
-            if not dependencies:
-                print("  Зависимости не найдены")
-            else:
-                for i, dep in enumerate(dependencies, 1):
-                    print(f"  {i}. {dep}")
+            if response.status_code == 200:
+                data = response.json()
+                dependencies = []
+                
+                # Получаем последнюю версию
+                versions = data.get('versions', [])
+                if versions:
+                    latest = versions[0]
+                    deps = latest.get('dependencies', [])
                     
+                    for dep in deps:
+                        if dep.get('kind') in [None, 'normal']:
+                            dep_name = dep.get('crate_id')
+                            if dep_name and dep_name not in dependencies:
+                                dependencies.append(dep_name)
+                
+                print(f"📦 Пакет {package_name} имеет {len(dependencies)} зависимостей")
+                return dependencies
+            else:
+                print(f"⚠️ Не удалось получить зависимости для {package_name} (код: {response.status_code})")
+                return []
+                
         except Exception as e:
-            print(f"Ошибка при получении зависимостей: {e}")
+            print(f"❌ Ошибка при запросе для {package_name}: {e}")
+            return []
+    
+    def display_dependencies(self):
+        """Выводит дерево зависимостей"""
+        if self.config.test_mode:
+            start_packages = ['A']
+        else:
+            start_packages = [self.config.package_name]
+        
+        for package in start_packages:
+            print(f"\n🌳 ДЕРЕВО ЗАВИСИМОСТЕЙ ДЛЯ '{package}':")
+            print("-" * 40)
+            self._print_dependency_tree(package)
+        
+        # Проверка циклических зависимостей
+        self._check_cyclic_dependencies()
+    
+    def _print_dependency_tree(self, package: str, depth: int = 0, path: list = None):
+        """Рекурсивно печатает дерево зависимостей"""
+        if path is None:
+            path = []
+        
+        # Проверка на цикл
+        if package in path:
+            indent = "  " * depth
+            print(f"{indent}↻ {package} (ЦИКЛ!)")
+            return
+        
+        if depth >= self.config.max_depth:
+            indent = "  " * depth
+            print(f"{indent}... (достигнута максимальная глубина {self.config.max_depth})")
+            return
+        
+        path.append(package)
+        dependencies = self.get_dependencies(package)
+        
+        indent = "  " * depth
+        if dependencies:
+            deps_str = ", ".join(dependencies)
+            print(f"{indent}📦 {package} → {deps_str}")
+        else:
+            print(f"{indent}📦 {package} → нет зависимостей")
+        
+        # Рекурсивно обрабатываем зависимости
+        for dep in dependencies:
+            self._print_dependency_tree(dep, depth + 1, path.copy())
+    
+    def _check_cyclic_dependencies(self):
+        """Проверяет циклические зависимости"""
+        print(f"\n🔍 ПРОВЕРКА ЦИКЛИЧЕСКИХ ЗАВИСИМОСТЕЙ:")
+        print("-" * 40)
+        
+        def find_cycle(current, visited, stack):
+            visited.add(current)
+            stack.add(current)
+            
+            for dep in self.get_dependencies(current):
+                if dep not in visited:
+                    if find_cycle(dep, visited, stack.copy()):
+                        return True
+                elif dep in stack:
+                    cycle_path = list(stack) + [dep]
+                    print(f"⚠️ Обнаружен цикл: {' → '.join(cycle_path)}")
+                    return True
+            
+            stack.remove(current)
+            return False
+        
+        if self.config.test_mode:
+            packages = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+        else:
+            packages = [self.config.package_name]
+        
+        cycles_found = 0
+        visited = set()
+        
+        for package in packages:
+            if package not in visited:
+                if find_cycle(package, visited, set()):
+                    cycles_found += 1
+        
+        if cycles_found == 0:
+            print("✅ Циклические зависимости не обнаружены")
+        else:
+            print(f"📊 Найдено циклических зависимостей: {cycles_found}")
