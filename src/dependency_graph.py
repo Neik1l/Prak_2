@@ -1,4 +1,4 @@
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 from config import Config
 from dependency_parser import DependencyParser
 
@@ -6,6 +6,7 @@ class DependencyGraph:
     def __init__(self, config: Config):
         self.config = config
         self.graph: Dict[str, List[str]] = {}
+        self.reverse_graph: Dict[str, List[str]] = {}
         self.visited: Set[str] = set()
         self.recursion_stack: Set[str] = set()
         self.cycles: List[List[str]] = []
@@ -18,57 +19,85 @@ class DependencyGraph:
         if self.config.test_mode:
             self._build_from_test_repo(start_package)
         else:
-            self._build_from_github(start_package)
+            # Для реальных пакетов пока используем тестовые данные для демонстрации
+            print("Режим работы с GitHub будет реализован в следующих этапах")
+            return
+        
+        # Строим обратный граф после построения основного
+        self._build_reverse_graph()
         
         print(f"Граф построен. Найдено пакетов: {len(self.graph)}")
         if self.cycles:
             print(f"Обнаружено циклических зависимостей: {len(self.cycles)}")
     
-    def _build_from_github(self, package: str) -> None:
-        """Рекурсивно строит граф из GitHub репозиториев"""
-        if package in self.visited:
-            return
+    def _build_reverse_graph(self) -> None:
+        """Строит обратный граф зависимостей"""
+        self.reverse_graph = {}
         
-        # Проверка на цикличность
-        if package in self.recursion_stack:
-            cycle = list(self.recursion_stack) + [package]
-            self.cycles.append(cycle)
-            print(f"Обнаружена циклическая зависимость: {' -> '.join(cycle)}")
-            return
+        # Для каждого пакета в графе
+        for package in self.graph:
+            self.reverse_graph[package] = []
         
-        self.recursion_stack.add(package)
-        self.visited.add(package)
-        
-        try:
-            # Получаем зависимости для текущего пакета
-            dependencies = self._get_dependencies_for_package(package)
-            self.graph[package] = dependencies
-            
-            print(f"{package} -> {dependencies}")
-            
-            # Рекурсивно обрабатываем зависимости
+        # Заполняем обратные зависимости
+        for package, dependencies in self.graph.items():
             for dep in dependencies:
-                self._build_from_github(dep)
-                
-        except Exception as e:
-            print(f"Ошибка при обработке пакета {package}: {e}")
-            self.graph[package] = []
-        finally:
-            self.recursion_stack.remove(package)
+                if dep in self.reverse_graph:
+                    self.reverse_graph[dep].append(package)
+                else:
+                    self.reverse_graph[dep] = [package]
     
-    def _get_dependencies_for_package(self, package: str) -> List[str]:
-        """Получает зависимости для конкретного пакета"""
-        if self.config.test_mode:
-            return self._get_test_dependencies(package)
-        else:
-            # Для реальных пакетов используем тот же репозиторий что и основной пакет
-            # В реальной реализации здесь был бы поиск репозитория для каждого пакета
-            if package == self.config.package_name:
-                parser = DependencyParser(self.config)
-                return parser.get_dependencies()
-            else:
-                # Заглушка - в реальности нужно искать репозитории зависимостей
-                return []
+    def find_reverse_dependencies(self, package: str) -> List[str]:
+        """Находит все обратные зависимости для заданного пакета"""
+        if package not in self.reverse_graph:
+            return []
+        
+        return sorted(self.reverse_graph[package])
+    
+    def find_transitive_reverse_dependencies(self, package: str) -> Set[str]:
+        """Находит все транзитивные обратные зависимости (пакеты, которые прямо или косвенно зависят от данного)"""
+        if package not in self.reverse_graph:
+            return set()
+        
+        visited = set()
+        result = set()
+        
+        def dfs_reverse(current: str):
+            if current in visited:
+                return
+            visited.add(current)
+            
+            # Добавляем прямые обратные зависимости
+            if current in self.reverse_graph:
+                for reverse_dep in self.reverse_graph[current]:
+                    result.add(reverse_dep)
+                    dfs_reverse(reverse_dep)
+        
+        # Запускаем DFS из исходного пакета
+        dfs_reverse(package)
+        return result
+    
+    def display_reverse_dependencies(self, package: str) -> None:
+        """Выводит обратные зависимости для заданного пакета"""
+        print(f"\nПоиск обратных зависимостей для пакета '{package}':")
+        
+        direct_reverse = self.find_reverse_dependencies(package)
+        transitive_reverse = self.find_transitive_reverse_dependencies(package)
+        
+        if not direct_reverse and not transitive_reverse:
+            print("  Обратные зависимости не найдены")
+            return
+        
+        if direct_reverse:
+            print(f"  Прямые обратные зависимости ({len(direct_reverse)}):")
+            for i, dep in enumerate(direct_reverse, 1):
+                print(f"    {i}. {dep}")
+        
+        if transitive_reverse and len(transitive_reverse) > len(direct_reverse):
+            transitive_only = transitive_reverse - set(direct_reverse)
+            if transitive_only:
+                print(f"  Транзитивные обратные зависимости ({len(transitive_only)}):")
+                for i, dep in enumerate(sorted(transitive_only), 1):
+                    print(f"    {i}. {dep}")
     
     def _build_from_test_repo(self, package: str) -> None:
         """Строит граф из тестового репозитория"""
@@ -108,20 +137,25 @@ class DependencyGraph:
         """Загружает тестовые данные из файла"""
         try:
             with open(self.config.test_repo_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+                content = f.read().strip()
             
             test_data = {}
+            lines = content.split('\n')
             current_package = None
             
-            for line in content.split('\n'):
+            for line in lines:
                 line = line.strip()
                 if not line:
+                    current_package = None
                     continue
                 
-                if line.isupper() and len(line) == 1:  # Однобуквенные имена пакетов
+                # Если строка состоит из одной заглавной буквы - это пакет
+                if len(line) == 1 and line.isupper():
                     current_package = line
-                    test_data[current_package] = []
-                elif current_package and line.isupper() and len(line) == 1:
+                    if current_package not in test_data:
+                        test_data[current_package] = []
+                # Иначе это зависимость текущего пакета
+                elif current_package and len(line) == 1 and line.isupper():
                     test_data[current_package].append(line)
             
             return test_data
@@ -129,16 +163,11 @@ class DependencyGraph:
         except Exception as e:
             raise ValueError(f"Ошибка загрузки тестовых данных: {e}")
     
-    def _get_test_dependencies(self, package: str) -> List[str]:
-        """Получает зависимости из тестовых данных"""
-        test_data = self._load_test_data()
-        return test_data.get(package, [])
-    
     def display_graph(self) -> None:
         """Выводит граф зависимостей"""
         print(f"\nПолный граф зависимостей для '{self.config.package_name}':")
         
-        for package, dependencies in self.graph.items():
+        for package, dependencies in sorted(self.graph.items()):
             if dependencies:
                 print(f"  {package} -> {', '.join(dependencies)}")
             else:
@@ -148,10 +177,3 @@ class DependencyGraph:
             print(f"\nОбнаружены циклические зависимости:")
             for i, cycle in enumerate(self.cycles, 1):
                 print(f"  {i}. {' -> '.join(cycle)}")
-    
-    def get_all_dependencies(self) -> Set[str]:
-        """Возвращает все уникальные зависимости (транзитивные)"""
-        all_deps = set()
-        for deps in self.graph.values():
-            all_deps.update(deps)
-        return all_deps
