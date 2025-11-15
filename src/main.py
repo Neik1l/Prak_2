@@ -1,6 +1,7 @@
 from config import Config
 from dependency_parser import DependencyParser
 from dependency_graph import DependencyGraph
+from visualizer import GraphVisualizer
 import sys
 import os
 
@@ -27,24 +28,49 @@ def main():
             graph.display_reverse_dependencies(config.package_name)
             
         else:
-            # Режим тестирования - граф и обратные зависимости
+            # Режим тестирования - полная демонстрация
             print("\n🔧 Режим тестирования")
             graph = DependencyGraph(config)
             graph.build_graph()
             graph.display_graph()
             
-            # Этап 4: Демонстрация обратных зависимостей для разных пакетов
+            # Этап 4: Демонстрация обратных зависимостей
             print("\n" + "="*50)
-            print("ЭТАП 4: ДОПОЛНИТЕЛЬНЫЕ ОПЕРАЦИИ")
+            print("ЭТАП 4: ОБРАТНЫЕ ЗАВИСИМОСТИ")
             print("="*50)
             
-            # Тестируем обратные зависимости для разных пакетов
             test_packages = ['A', 'C', 'E', 'F']
             for package in test_packages:
                 graph.display_reverse_dependencies(package)
                 print()
         
-        print("\nЭтап 4 завершен успешно!")
+        # Этап 5: Визуализация
+        print("\n" + "="*50)
+        print("ЭТАП 5: ВИЗУАЛИЗАЦИЯ")
+        print("="*50)
+        
+        visualizer = GraphVisualizer(graph)
+        
+        # 5.1 Mermaid диаграмма основного графа
+        visualizer.display_mermaid_graph()
+        
+        # 5.2 Mermaid диаграммы обратных зависимостей для 3 пакетов
+        print("\n" + "-"*30)
+        print("Визуализация обратных зависимостей:")
+        print("-"*30)
+        
+        demo_packages = ['C', 'E', 'F'] if config.test_mode else [config.package_name]
+        for package in demo_packages:
+            visualizer.display_reverse_mermaid_graph(package)
+            print()
+        
+        # 5.3 Сохранение в файл
+        visualizer.save_mermaid_to_file()
+        
+        # 5.4 Сравнение с штатными инструментами
+        visualizer.compare_with_std_tools()
+        
+        print("\n🎉 Все этапы завершены успешно!")
         
     except Exception as e:
         print(f"Ошибка: {e}")
