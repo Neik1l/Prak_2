@@ -2,9 +2,9 @@ import os
 import tempfile
 import urllib.request
 import urllib.error
-import toml
+import re
 from typing import List, Dict, Any
-from toml import loads as toml_loads
+from config import Config
 
 class DependencyParser:
     def __init__(self, config):
@@ -29,7 +29,7 @@ class DependencyParser:
             cargo_toml_content = self._download_file(cargo_toml_url)
             
             # Парсим зависимости
-            return self._parse_dependencies_from_content(cargo_toml_content)
+            return self._parse_dependencies_simple(cargo_toml_content)
             
         except Exception as e:
             raise ValueError(f"Ошибка получения зависимостей из GitHub: {e}")
@@ -40,18 +40,14 @@ class DependencyParser:
         
         # Преобразуем GitHub URL в raw URL
         if 'github.com' in repo_url:
-            # Пример: https://github.com/rust-lang/log -> https://raw.githubusercontent.com/rust-lang/log/main/Cargo.toml
             parts = repo_url.replace('https://github.com/', '').split('/')
             if len(parts) >= 2:
                 user, repo = parts[0], parts[1]
-                # Пробуем разные ветки
-                branches = ['main', 'master', 'trunk']
+                branches = ['main', 'master']
                 for branch in branches:
                     test_url = f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/Cargo.toml"
                     if self._url_exists(test_url):
                         return test_url
-                
-                # Если ни одна ветка не найдена, используем main
                 return f"https://raw.githubusercontent.com/{user}/{repo}/main/Cargo.toml"
         
         raise ValueError(f"Неподдерживаемый URL репозитория: {repo_url}")
@@ -78,43 +74,34 @@ class DependencyParser:
         except urllib.error.URLError as e:
             raise ValueError(f"Ошибка сети: {e.reason}")
     
-    def _parse_dependencies_from_content(self, content: str) -> List[str]:
-        """Парсит зависимости из содержимого Cargo.toml"""
-        try:
-            # Парсим TOML
-            cargo_data = toml.loads(content)
+    def _parse_dependencies_simple(self, content: str) -> List[str]:
+        """Упрощенный парсер для извлечения зависимостей из Cargo.toml"""
+        dependencies = []
+        in_dependencies_section = False
+        
+        for line in content.split('\n'):
+            line = line.strip()
             
-            dependencies = []
+            # Начало секции зависимостей
+            if line == '[dependencies]':
+                in_dependencies_section = True
+                continue
+            # Конец секции (новая секция)
+            elif line.startswith('[') and in_dependencies_section:
+                break
             
-            # Извлекаем зависимости из разных секций
-            dependency_sections = ['dependencies', 'dev-dependencies', 'build-dependencies']
-            
-            for section in dependency_sections:
-                if section in cargo_data:
-                    deps = cargo_data[section]
-                    
-                    for dep_name, dep_info in deps.items():
-                        if isinstance(dep_info, str):
-                            # Простая зависимость: name = "version"
-                            dependencies.append(dep_name)
-                        elif isinstance(dep_info, dict):
-                            # Сложная зависимость: name = { ... }
-                            dependencies.append(dep_name)
-                        else:
-                            dependencies.append(dep_name)
-            
-            # Убираем дубликаты и сортируем
-            return sorted(list(set(dependencies)))
-            
-        except toml.TomlDecodeError as e:
-            raise ValueError(f"Ошибка парсинга TOML: {e}")
-        except Exception as e:
-            raise ValueError(f"Ошибка обработки Cargo.toml: {e}")
+            # В секции зависимостей - извлекаем имена
+            if in_dependencies_section and '=' in line and not line.startswith('#'):
+                dep_name = line.split('=')[0].strip()
+                if dep_name and not dep_name.startswith('['):
+                    dependencies.append(dep_name)
+        
+        return dependencies
     
     def _get_dependencies_from_test_repo(self) -> List[str]:
-        """Получает зависимости из тестового репозитория (для этапа 3)"""
-        # Пока заглушка - реализуем в этапе 3
-        raise ValueError("Тестовый режим будет реализован в этапе 3")
+        """Получает зависимости из тестового репозитория"""
+        # Для этапа 3 будет реализовано в dependency_graph
+        return []
     
     def display_dependencies(self) -> None:
         """Выводит прямые зависимости на экран"""

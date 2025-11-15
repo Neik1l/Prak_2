@@ -1,6 +1,8 @@
+from config import Config
+from dependency_parser import DependencyParser
+from dependency_graph import DependencyGraph
 import sys
 import os
-from config import Config  # Теперь импорт проще
 
 def main():
     try:
@@ -11,7 +13,23 @@ def main():
         # Выводим параметры (требование этапа 1)
         config.display_parameters()
         
-        print("\nКонфигурация успешно загружена!")
+        if not config.test_mode:
+            # Этап 2: Прямые зависимости
+            parser = DependencyParser(config)
+            parser.display_dependencies()
+            
+            # Этап 3: Полный граф зависимостей
+            graph = DependencyGraph(config)
+            graph.build_graph()
+            graph.display_graph()
+        else:
+            # Режим тестирования - только граф
+            print("\n🔧 Режим тестирования")
+            graph = DependencyGraph(config)
+            graph.build_graph()
+            graph.display_graph()
+        
+        print("\nЭтап 3 завершен успешно!")
         
     except Exception as e:
         print(f"Ошибка: {e}")

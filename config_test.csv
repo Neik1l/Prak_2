@@ -1,2 +1,2 @@
 package_name,repository_url,test_mode,test_repo_path
-log,https://github.com/rust-lang/log,false,
+A,,true,test_repo.txt
